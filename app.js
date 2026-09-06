@@ -26,13 +26,11 @@
       $('status').after(progressText);
     }
     const style = document.createElement('style');
-    style.textContent = '.progress-text{margin-top:6px;color:#666;font-size:12px;line-height:1.2}.chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.chip{width:100%;min-width:0;justify-content:space-between;padding:7px 5px;font-size:13px;gap:2px;overflow:visible}.chip span{min-width:0;flex:0 0 auto;overflow:visible;text-overflow:clip;white-space:nowrap}.chip button{flex:0 0 auto;font-size:18px}.product-coupon{display:block;width:100%;margin-top:9px}#mute{grid-column:1/-1}';
-    const productEntryRow = $('addProduct')?.closest('.entry-row');
+    style.textContent = '.progress-text{margin-top:6px;color:#666;font-size:12px;line-height:1.2}.chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.chip{width:100%;min-width:0;justify-content:space-between;padding:7px 5px;font-size:13px;gap:2px;overflow:visible}.chip span{min-width:0;flex:0 0 auto;overflow:visible;text-overflow:clip;white-space:nowrap}.chip button{flex:0 0 auto;font-size:18px}#mute{grid-column:1/-1}';
     const coupon = $('coupon');
-    if (productEntryRow && coupon) {
-      coupon.classList.add('product-coupon');
-      productEntryRow.after(coupon);
-    }
+    if (coupon) coupon.remove();
+    const productHint = $('productCount')?.parentElement;
+    if (productHint) productHint.innerHTML = '<span id="productCount">0/50 product IDs</span> · Enter numeric product IDs only.';
     document.head.appendChild(style);
   }
 
@@ -59,10 +57,9 @@
 
   function spec(value) {
     const key = String(value || '').trim();
-    const match = key.match(/^(\d+)([wW][cC])?$/);
+    const match = key.match(/^(\d+)$/);
     if (!match) return null;
-    const suffix = (match[2] || '').toUpperCase();
-    return { key, productId: match[1], withoutCoupon: suffix === 'WC' };
+    return { key, productId: match[1] };
   }
 
   function productKeys(value) {
@@ -70,7 +67,7 @@
   }
 
   function migrateProducts(value) {
-    return String(value || '').split(/[\s,;]+/).filter(Boolean).map(item => /^\d+c$/i.test(item) ? item.slice(0, -1) : item).join('\n');
+    return String(value || '').split(/[\s,;]+/).map(item => item.match(/^(\d+)/)?.[1] || '').filter(Boolean).join('\n');
   }
 
   function pinCodes(value) {
@@ -103,16 +100,9 @@
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
         products: $('products').value, pincodes: $('pincodes').value, category: $('category').value,
-        interval: $('interval').value, coupon: $('coupon').dataset.on === 'true', muted: state.muted
+        interval: $('interval').value, muted: state.muted
       }));
     } catch {}
-  }
-
-  function setCoupon(on, persist = true) {
-    $('coupon').dataset.on = String(on);
-    $('coupon').textContent = `🎟 Coupon alerts: ${on ? 'ON' : 'OFF'}`;
-    $('coupon').classList.toggle('on', on);
-    if (persist) saveSettings();
   }
 
   function setMute() {
@@ -121,7 +111,7 @@
   }
 
   function counts() {
-    $('productCount').textContent = `${productKeys($('products').value).length}/${MAX_PRODUCTS} products`;
+    $('productCount').textContent = `${productKeys($('products').value).length}/${MAX_PRODUCTS} product IDs`;
     $('pinCount').textContent = `${pinCodes($('pincodes').value).length} pincodes`;
     $('parallelCount').textContent = productKeys($('products').value).length * pinCodes($('pincodes').value).length;
     renderChips();
@@ -303,10 +293,9 @@
     [...state.rows.keys()].forEach(key => { if (!allowed.has(key)) state.rows.delete(key); });
     state.requestErrors = 0;
     state.lastError = '';
-    const coupon = $('coupon').dataset.on === 'true';
     const jobs = keys.map(item => spec(item)).filter(Boolean).flatMap(item => pins.map(pincode => ({
       key: item.key, productId: item.productId, pincode,
-      offerCheck: !item.withoutCoupon && coupon
+      offerCheck: false
     })));
     let completed = 0;
     let hadError = false;
@@ -394,7 +383,7 @@
   function load() {
     try {
       const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-      $('products').value = migrateProducts(settings.products); $('pincodes').value = settings.pincodes || ''; $('category').value = settings.category || 'mobile'; $('interval').value = settings.interval || '1'; state.muted = settings.muted === true; setCoupon(settings.coupon === true, false);
+      $('products').value = migrateProducts(settings.products); $('pincodes').value = settings.pincodes || ''; $('category').value = settings.category || 'mobile'; $('interval').value = settings.interval || '1'; state.muted = settings.muted === true;
       const results = JSON.parse(localStorage.getItem(RESULTS_KEY) || '[]'); results.forEach(row => state.rows.set(row.key, row));
     } catch {}
     counts(); setMute(); render();
@@ -409,7 +398,6 @@
   $('productChips').addEventListener('click', event => { const button = event.target.closest('[data-remove]'); if (!button) return; $('products').value = productKeys($('products').value).filter(value => value !== button.dataset.remove).join('\n'); $('products').dispatchEvent(new Event('input', { bubbles:true })); });
   $('pincodeChips').addEventListener('click', event => { const button = event.target.closest('[data-remove]'); if (!button) return; $('pincodes').value = pinCodes($('pincodes').value).filter(value => value !== button.dataset.remove).join('\n'); $('pincodes').dispatchEvent(new Event('input', { bubbles:true })); });
   $('category').addEventListener('input', saveSettings); $('interval').addEventListener('change', saveSettings);
-  $('coupon').addEventListener('click', () => setCoupon($('coupon').dataset.on !== 'true'));
   $('mute').addEventListener('click', () => { state.muted = !state.muted; if (state.muted) stopErrorAlarm(); setMute(); saveSettings(); });
   $('start').addEventListener('click', start); $('stop').addEventListener('click', stop); $('clear').addEventListener('click', clearResults);
   $('copyDevice').addEventListener('click', async () => { try { await navigator.clipboard.writeText(state.deviceId); $('copyDevice').textContent = 'Copied'; setTimeout(() => { $('copyDevice').textContent = 'Copy ID'; }, 1500); } catch { $('accessMessage').textContent = 'Copy failed. Press and hold the Device ID to copy it.'; } });
